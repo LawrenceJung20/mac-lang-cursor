@@ -10,28 +10,15 @@ final class OverlayWindow {
     private static let horizontalPadding: CGFloat = 12
     private static let fadeOutDuration: TimeInterval = 0.2
 
-    private let panel: NSPanel
+    private var panel: NSPanel
     private let badge = NSView()
     private let label = NSTextField(labelWithString: "")
     private var isShowing = false
     private var rendered: InputLanguage?
+    private var spaceObserver: NSObjectProtocol?
 
     init() {
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.minWidth, height: Self.height),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.level = .screenSaver
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [
-            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
-        ]
+        panel = Self.makePanel(size: NSSize(width: Self.minWidth, height: Self.height))
 
         badge.wantsLayer = true
         badge.layer?.cornerRadius = 6
@@ -46,6 +33,50 @@ final class OverlayWindow {
             label.centerXAnchor.constraint(equalTo: badge.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: badge.centerYAnchor),
         ])
+
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.recreatePanel() }
+        }
+    }
+
+    private static func makePanel(size: NSSize) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .screenSaver
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+        ]
+        return panel
+    }
+
+    /// A panel can lose `canJoinAllSpaces` during a Space switch and stay behind on its old
+    /// Space, while still reporting that it is visible. A panel created now is always on
+    /// the active Space.
+    private func recreatePanel() {
+        let old = panel
+        panel = Self.makePanel(size: old.frame.size)
+        panel.alphaValue = isShowing ? Self.opacity : 0
+        panel.contentView = badge
+        old.close()
+
+        guard isShowing else { return }
+        position()
+        panel.orderFrontRegardless()
     }
 
     func show(_ language: InputLanguage) {

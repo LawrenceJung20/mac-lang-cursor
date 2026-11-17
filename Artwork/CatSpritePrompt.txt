@@ -1,0 +1,16 @@
+Use case: stylized-concept
+Asset type: complete production pixel art sprite atlas for a tiny macOS desktop cat.
+Input image: the first referenced image is the character and style reference; preserve this same cute ivory white cat, pink inner ears, charcoal dark pixel outline, tiny black eyes, slightly tousled fur and small tail.
+Primary request: Create ONE transparent sprite sheet in an EXACT regular 8 column by 8 row grid, 64 complete frames, preferably 2048x2048 pixels. No labels, grid lines or text. Each equal square cell contains one entire cat of identical scale with feet on the same baseline, generous transparent padding. Perfect registration: body center horizontally aligned across cells. Transparent background, no checkerboard drawn, no floor, no shadow. Keep small crisp chunky pixel-art details that read at 48 pixels tall. Avoid smooth painted rendering.
+Animation rows ordered TOP TO BOTTOM, each with 8 sequential frames LEFT TO RIGHT:
+Row 1: RUN RIGHT profile, complete fluid 8 frame gallop loop: contact, compression, push off, extended leap, landing, compression, push off, extended leap. Clear varied leg positions, elastic spine, tail follows motion.
+Row 2: RUN UP away from viewer, complete rear view 8 frame running loop, ears and tail visible, alternating hind legs.
+Row 3: RUN DOWN toward viewer, complete front view 8 frame running loop, face visible, alternating forelegs and hindlegs.
+Row 4: SIT DOWN transition, front three-quarter view: standing alert, lower haunches progressively across all 8 frames until fully seated symmetrical relaxed pose. This row will be played in reverse to stand up.
+Row 5: SEATED IDLE loop, same fully seated pose as end of row4: gentle breathing, blink closed eyelids in frames4-5, subtle tail tip curl, return open eyes. Same body shape and position.
+Row 6: PAW LICKING 8 frame loop seated, raise right forepaw, turn muzzle down, tiny pink tongue licking paw in frames3 and5, lower paw to seated rest at end. Clear readable grooming.
+Row 7: FACE WASHING 8 frame loop seated, raised paw sweeps slowly over cheek and ear, closed content eyes, then paw lowers to seated rest.
+Row 8: STRETCH and return 8 frame sequence: from seated, front paws extend forward, cat bows with haunches up, full long cat stretch, draws paws back, returns to same seated rest.
+Constraints: all 64 frames present, exactly 8 rows x 8 columns, NEVER overlap or crop cell edges, same single cat identity and scale. This must be a functional animation atlas with smooth adjacent frames, not a collection of unrelated poses. No extra characters or props.
+
+Refinement: Remove alpha background noise, retain all 64 poses, align regular cells and preserve complete paws/ears/tails. Built-in image_gen tool, transparent_background=true. Reference: /Users/hlpsolution/Documents/resources/cat_dog/image_al.png. Runtime atlas packed by scripts/pack-cat-atlas.swift.

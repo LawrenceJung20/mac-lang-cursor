@@ -4,12 +4,15 @@ import LangCursorCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let alwaysOnKey = "alwaysOn"
+    private static let catEnabledKey = "desktopCatEnabled"
+    private static let catSizeKey = "desktopCatSize"
 
     private let overlay = OverlayWindow()
     private let inputSource = InputSourceMonitor()
     private let keyboard = KeyboardMonitor()
     private let mouse = MouseMonitor()
     private let statusMenu = StatusMenu()
+    private let desktopCat = DesktopCatController()
 
     private var policy = VisibilityPolicy()
     private var hideWork: DispatchWorkItem?
@@ -23,6 +26,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         policy.alwaysOn = UserDefaults.standard.bool(forKey: Self.alwaysOnKey)
+        UserDefaults.standard.register(defaults: [Self.catEnabledKey: true, Self.catSizeKey: 64.0])
+        let catEnabled = UserDefaults.standard.bool(forKey: Self.catEnabledKey)
+        let catSize = UserDefaults.standard.double(forKey: Self.catSizeKey)
+        desktopCat.setSize(catSize)
+        desktopCat.setEnabled(catEnabled)
+        statusMenu.catEnabled = catEnabled
+        statusMenu.catSize = catSize
+        statusMenu.onCatEnabledChange = { [weak self] enabled in
+            UserDefaults.standard.set(enabled, forKey: Self.catEnabledKey)
+            self?.desktopCat.setEnabled(enabled)
+        }
+        statusMenu.onCatSizeChange = { [weak self] size in
+            UserDefaults.standard.set(size, forKey: Self.catSizeKey)
+            self?.desktopCat.setSize(size)
+        }
+        desktopCat.start()
 
         statusMenu.alwaysOn = policy.alwaysOn
         statusMenu.show(inputSource.current)
@@ -42,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyboard.start()
         mouse.start()
         registerActivity()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        desktopCat.stop()
+        hideWork?.cancel()
+        if let appNapGuard { ProcessInfo.processInfo.endActivity(appNapGuard) }
     }
 
     private func handleKeyboardActivity() {
