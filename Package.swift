@@ -6,7 +6,11 @@ let package = Package(
     platforms: [.macOS(.v13)],
     targets: [
         .target(name: "LangCursorCore"),
-        .executableTarget(name: "LangCursor", dependencies: ["LangCursorCore"]),
+        .executableTarget(
+            name: "LangCursor",
+            dependencies: ["LangCursorCore"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(name: "LangCursorCoreTests", dependencies: ["LangCursorCore"]),
     ]
 )
