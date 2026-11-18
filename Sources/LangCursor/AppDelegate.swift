@@ -60,6 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(seconds, forKey: Self.poopDelayKey)
             self?.desktopCat.setPoopDelay(seconds)
         }
+        statusMenu.poopCount = { [weak self] in self?.desktopCat.poopCount ?? 0 }
+        statusMenu.onCleanAllPoops = { [weak self] in self?.desktopCat.cleanAllPoops() }
         desktopCat.start()
 
         statusMenu.alwaysOn = policy.alwaysOn

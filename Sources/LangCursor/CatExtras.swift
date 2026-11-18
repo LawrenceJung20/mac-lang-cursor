@@ -27,6 +27,9 @@ final class PoopPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// Seconds the flies circle before zooming toward the viewer and vanishing.
+    static let flyLifetime: TimeInterval = 5
+
     func appear() {
         alphaValue = 0
         flies.alphaValue = 0
@@ -36,6 +39,9 @@ final class PoopPanel: NSPanel {
             context.duration = 0.35
             animator().alphaValue = 1
             flies.animator().alphaValue = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.flyLifetime) { [weak self] in
+            MainActor.assumeIsolated { self?.flies.flyAway() }
         }
     }
 
@@ -67,20 +73,44 @@ final class PoopPanel: NSPanel {
     }
 }
 
-/// Two flies circling over a dropping. Animated by Core Animation, so they cost no app ticks.
+/// A few flies wandering over a dropping. Animated by Core Animation, so they cost no app ticks.
 @MainActor
 private final class FliesPanel: NSPanel {
+    private let fliesView: FliesView
+    /// Once the flies have flown off, nothing brings this window back.
+    private var finished = false
+
     init(poopCenter: CGPoint, poopSize: CGFloat) {
-        let width = poopSize * 2
-        let height = poopSize * 1.6
+        // Roomy and click-through, so the flies can grow as they come toward the viewer.
+        let side = poopSize * 6
+        let frame = NSRect(x: 0, y: 0, width: side, height: side)
+        fliesView = FliesView(frame: frame, poopSize: poopSize)
         super.init(
-            contentRect: NSRect(x: poopCenter.x - width / 2, y: poopCenter.y - poopSize * 0.35,
-                                width: width, height: height),
+            contentRect: NSRect(x: poopCenter.x - side / 2, y: poopCenter.y + poopSize * 0.55 - side / 2,
+                                width: side, height: side),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
         )
         configureFloating(self)
         level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
-        contentView = FliesView(frame: NSRect(x: 0, y: 0, width: width, height: height), poopSize: poopSize)
+        contentView = fliesView
+    }
+
+    override func orderFrontRegardless() {
+        guard !finished else { return }
+        super.orderFrontRegardless()
+    }
+
+    /// The flies swell as if flying at the screen, then disappear for good.
+    func flyAway() {
+        guard !finished else { return }
+        // Above the cat and everything else on the desktop while they rush the viewer.
+        level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
+        if isVisible { super.orderFrontRegardless() }
+        fliesView.zoomTowardViewer { [weak self] in
+            guard let self else { return }
+            finished = true
+            orderOut(nil)
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -89,18 +119,20 @@ private final class FliesPanel: NSPanel {
 
 @MainActor
 private final class FliesView: NSView {
+    private var flies: [CALayer] = []
+    private var swarmCenter = CGPoint.zero
+
     init(frame: NSRect, poopSize: CGFloat) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        let center = CGPoint(x: frame.width / 2, y: frame.height * 0.62)
-        let orbit = CGSize(width: frame.width * 0.32, height: frame.height * 0.16)
-        let flySize = max(5, poopSize * 0.26)
-        // Different speeds and directions keep the pair from moving in lockstep.
-        addFly(center: center, orbit: orbit, size: flySize, duration: 1.7, clockwise: false, offset: 0)
-        addFly(center: CGPoint(x: center.x, y: center.y + orbit.height * 0.6),
-               orbit: CGSize(width: orbit.width * 0.7, height: orbit.height * 0.8),
-               size: flySize * 0.9, duration: 1.2, clockwise: true, offset: 0.4)
+        swarmCenter = CGPoint(x: frame.width / 2, y: frame.height / 2 + poopSize * 0.09)
+        let reach = CGSize(width: poopSize * 0.75, height: poopSize * 0.45)
+        let baseSize = max(5, poopSize * 0.26)
+        // Each dropping gets its own little swarm; every fly wanders its own way.
+        for _ in 0..<Int.random(in: 2...3) {
+            addFly(size: baseSize * CGFloat.random(in: 0.8...1.1), reach: reach)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -109,13 +141,12 @@ private final class FliesView: NSView {
 
     override var isOpaque: Bool { false }
 
-    private func addFly(center: CGPoint, orbit: CGSize, size: CGFloat,
-                        duration: CFTimeInterval, clockwise: Bool, offset: CFTimeInterval) {
+    private func addFly(size: CGFloat, reach: CGSize) {
         let fly = CALayer()
         fly.bounds = CGRect(x: 0, y: 0, width: size, height: size)
-        fly.position = center
 
         // Two pale wings that flutter, behind a dark body.
+        let flutterSpeed = CFTimeInterval.random(in: 0.035...0.065)
         for side in [-1.0, 1.0] {
             let wing = CALayer()
             wing.bounds = CGRect(x: 0, y: 0, width: size * 0.5, height: size * 0.36)
@@ -125,9 +156,10 @@ private final class FliesView: NSView {
             let flutter = CABasicAnimation(keyPath: "opacity")
             flutter.fromValue = 1
             flutter.toValue = 0.25
-            flutter.duration = 0.05
+            flutter.duration = flutterSpeed
             flutter.autoreverses = true
             flutter.repeatCount = .infinity
+            flutter.timeOffset = .random(in: 0...flutterSpeed)
             wing.add(flutter, forKey: "flutter")
             fly.addSublayer(wing)
         }
@@ -138,43 +170,235 @@ private final class FliesView: NSView {
         body.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
         fly.addSublayer(body)
 
-        let rect = CGRect(x: center.x - orbit.width, y: center.y - orbit.height,
-                          width: orbit.width * 2, height: orbit.height * 2)
-        var flip = CGAffineTransform(translationX: center.x * 2, y: 0).scaledBy(x: -1, y: 1)
-        let path = clockwise ? CGPath(ellipseIn: rect, transform: &flip) : CGPath(ellipseIn: rect, transform: nil)
-        let circling = CAKeyframeAnimation(keyPath: "position")
-        circling.path = path
-        circling.duration = duration
-        circling.calculationMode = .paced
-        circling.repeatCount = .infinity
-        circling.timeOffset = offset
-        fly.add(circling, forKey: "circling")
+        // A closed, wandering loop through random spots over the dropping. Uneven key times make
+        // the fly dart on some legs and hover on others, so no two flies (or laps) look alike.
+        let stops = Int.random(in: 7...11)
+        var points: [NSValue] = []
+        for _ in 0..<stops {
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let radius = CGFloat.random(in: 0.25...1)
+            points.append(NSValue(point: CGPoint(x: swarmCenter.x + cos(angle) * reach.width * radius,
+                                                 y: swarmCenter.y + sin(angle) * reach.height * radius
+                                                    + reach.height * 0.3)))
+        }
+        points.append(points[0])
+        var times: [Double] = [0]
+        for _ in 1..<points.count { times.append(times.last! + .random(in: 0.4...1.6)) }
+        let total = times.last!
+        fly.position = points[0].pointValue
 
-        let bob = CABasicAnimation(keyPath: "transform.translation.y")
-        bob.fromValue = -size * 0.4
-        bob.toValue = size * 0.4
-        bob.duration = duration / 3
-        bob.autoreverses = true
-        bob.repeatCount = .infinity
-        fly.add(bob, forKey: "bob")
+        let wander = CAKeyframeAnimation(keyPath: "position")
+        wander.values = points
+        wander.keyTimes = times.map { NSNumber(value: $0 / total) }
+        wander.calculationMode = .cubic
+        wander.duration = Double(stops) * .random(in: 0.22...0.4)
+        wander.repeatCount = .infinity
+        wander.timeOffset = .random(in: 0...wander.duration)
+        fly.add(wander, forKey: "wander")
 
         layer?.addSublayer(fly)
+        flies.append(fly)
     }
+
+    /// Each fly leaves its path where it is and, at its own moment and pace, swells as if
+    /// flying at the screen while veering off in its own direction, then vanishes.
+    func zoomTowardViewer(completion: @escaping @MainActor () -> Void) {
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            MainActor.assumeIsolated { completion() }
+        }
+        let now = CACurrentMediaTime()
+        for fly in flies {
+            let current = fly.presentation()?.position ?? fly.position
+            fly.removeAnimation(forKey: "wander")
+            let outward = atan2(current.y - swarmCenter.y, current.x - swarmCenter.x)
+            let heading = outward + CGFloat.random(in: -0.9...0.9)
+            let distance = fly.bounds.width * CGFloat.random(in: 4...9)
+            let away = CGPoint(x: current.x + cos(heading) * distance, y: current.y + sin(heading) * distance)
+            let scale = CGFloat.random(in: 5...9)
+            fly.position = away
+            fly.transform = CATransform3DMakeScale(scale, scale, 1)
+            fly.opacity = 0
+
+            let move = CABasicAnimation(keyPath: "position")
+            move.fromValue = NSValue(point: current)
+            move.toValue = NSValue(point: away)
+            let grow = CABasicAnimation(keyPath: "transform")
+            grow.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
+            grow.toValue = NSValue(caTransform3D: fly.transform)
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            // Stay solid while approaching, then vanish at the very end.
+            fade.values = [1, 1, 0]
+            fade.keyTimes = [0, NSNumber(value: Double.random(in: 0.55...0.75)), 1]
+            let group = CAAnimationGroup()
+            group.animations = [move, grow, fade]
+            group.duration = .random(in: 0.7...1.2)
+            // Staggered take-off; until then the fly hangs where it was.
+            group.beginTime = now + .random(in: 0...0.5)
+            group.fillMode = .backwards
+            group.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            fly.add(group, forKey: "zoom")
+        }
+        CATransaction.commit()
+    }
+}
+
+/// The faces a dropping can wear; each one picks at random.
+private enum PoopFace: CaseIterable {
+    case smile, wink, surprised, sleepy, grumpy, tongue, love, dizzy
 }
 
 @MainActor
 private final class PoopView: NSView {
     var onClick: (() -> Void)?
+    private let face = PoopFace.allCases.randomElement()!
 
     override var isOpaque: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let font = NSFont.systemFont(ofSize: bounds.height * 0.78)
-        let text = NSAttributedString(string: "💩", attributes: [.font: font])
-        let textSize = text.size()
-        text.draw(at: CGPoint(x: (bounds.width - textSize.width) / 2,
-                              y: (bounds.height - textSize.height) / 2))
+        let w = bounds.width
+        let h = bounds.height
+        func rect(_ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat) -> NSRect {
+            NSRect(x: w * x0, y: h * y0, width: w * (x1 - x0), height: h * (y1 - y0))
+        }
+        let fill = NSColor(calibratedRed: 0.56, green: 0.35, blue: 0.18, alpha: 1)
+        let line = NSColor(calibratedRed: 0.35, green: 0.20, blue: 0.09, alpha: 1)
+        let lineWidth = max(1, w * 0.035)
+
+        // Swirl from the tip down; each lower tier overlaps the one above it.
+        let tip = NSBezierPath()
+        tip.move(to: CGPoint(x: w * 0.40, y: h * 0.70))
+        tip.curve(to: CGPoint(x: w * 0.60, y: h * 0.94),
+                  controlPoint1: CGPoint(x: w * 0.42, y: h * 0.84), controlPoint2: CGPoint(x: w * 0.50, y: h * 0.90))
+        tip.curve(to: CGPoint(x: w * 0.64, y: h * 0.70),
+                  controlPoint1: CGPoint(x: w * 0.62, y: h * 0.86), controlPoint2: CGPoint(x: w * 0.68, y: h * 0.78))
+        tip.close()
+        let tiers = [tip,
+                     NSBezierPath(ovalIn: rect(0.28, 0.52, 0.72, 0.78)),
+                     NSBezierPath(roundedRect: rect(0.16, 0.30, 0.84, 0.62), xRadius: w * 0.16, yRadius: h * 0.15),
+                     NSBezierPath(roundedRect: rect(0.06, 0.05, 0.94, 0.42), xRadius: w * 0.18, yRadius: h * 0.17)]
+        for tier in tiers {
+            fill.setFill()
+            tier.fill()
+            line.setStroke()
+            tier.lineWidth = lineWidth
+            tier.stroke()
+        }
+        // A glossy highlight on the top tier.
+        NSColor.white.withAlphaComponent(0.35).setFill()
+        NSBezierPath(ovalIn: rect(0.34, 0.64, 0.46, 0.72)).fill()
+
+        drawFace(w: w, h: h, lineWidth: lineWidth)
+    }
+
+    private func drawFace(w: CGFloat, h: CGFloat, lineWidth: CGFloat) {
+        let left = CGPoint(x: w * 0.36, y: h * 0.29)
+        let right = CGPoint(x: w * 0.64, y: h * 0.29)
+        let r = w * 0.07
+        let ink = NSColor(calibratedWhite: 0.08, alpha: 1)
+        let pink = NSColor(calibratedRed: 1, green: 0.55, blue: 0.62, alpha: 1)
+
+        func stroke(_ path: NSBezierPath, width: CGFloat = lineWidth) {
+            ink.setStroke()
+            path.lineWidth = width
+            path.lineCapStyle = .round
+            path.stroke()
+        }
+        func openEye(_ c: CGPoint, scale: CGFloat = 1) {
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: NSRect(x: c.x - r * scale, y: c.y - r * scale,
+                                        width: r * 2 * scale, height: r * 2 * scale)).fill()
+            ink.setFill()
+            let p = r * 0.55 * scale
+            NSBezierPath(ovalIn: NSRect(x: c.x - p, y: c.y - p * 1.2, width: p * 2, height: p * 2)).fill()
+        }
+        func arcEye(_ c: CGPoint, up: Bool) {
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: c.x - r, y: c.y))
+            path.curve(to: CGPoint(x: c.x + r, y: c.y),
+                       controlPoint1: CGPoint(x: c.x - r * 0.5, y: c.y + (up ? r : -r)),
+                       controlPoint2: CGPoint(x: c.x + r * 0.5, y: c.y + (up ? r : -r)))
+            stroke(path)
+        }
+        func mouth(from: CGFloat, to: CGFloat, y: CGFloat, bend: CGFloat) {
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: w * from, y: h * y))
+            path.curve(to: CGPoint(x: w * to, y: h * y),
+                       controlPoint1: CGPoint(x: w * (from + 0.04), y: h * (y + bend)),
+                       controlPoint2: CGPoint(x: w * (to - 0.04), y: h * (y + bend)))
+            stroke(path)
+        }
+        func cheeks() {
+            pink.withAlphaComponent(0.6).setFill()
+            NSBezierPath(ovalIn: NSRect(x: w * 0.15, y: h * 0.17, width: w * 0.12, height: h * 0.07)).fill()
+            NSBezierPath(ovalIn: NSRect(x: w * 0.73, y: h * 0.17, width: w * 0.12, height: h * 0.07)).fill()
+        }
+        func heart(_ c: CGPoint) {
+            let s = r * 1.15
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: c.x, y: c.y - s))
+            path.curve(to: CGPoint(x: c.x, y: c.y + s * 0.5),
+                       controlPoint1: CGPoint(x: c.x - s * 1.6, y: c.y + s * 0.1),
+                       controlPoint2: CGPoint(x: c.x - s * 0.6, y: c.y + s * 1.3))
+            path.curve(to: CGPoint(x: c.x, y: c.y - s),
+                       controlPoint1: CGPoint(x: c.x + s * 0.6, y: c.y + s * 1.3),
+                       controlPoint2: CGPoint(x: c.x + s * 1.6, y: c.y + s * 0.1))
+            NSColor(calibratedRed: 0.93, green: 0.15, blue: 0.25, alpha: 1).setFill()
+            path.fill()
+        }
+        func crossEye(_ c: CGPoint) {
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: c.x - r * 0.8, y: c.y - r * 0.8))
+            path.line(to: CGPoint(x: c.x + r * 0.8, y: c.y + r * 0.8))
+            path.move(to: CGPoint(x: c.x - r * 0.8, y: c.y + r * 0.8))
+            path.line(to: CGPoint(x: c.x + r * 0.8, y: c.y - r * 0.8))
+            stroke(path)
+        }
+
+        switch face {
+        case .smile:
+            openEye(left); openEye(right); cheeks()
+            mouth(from: 0.42, to: 0.58, y: 0.17, bend: -0.07)
+        case .wink:
+            openEye(left); arcEye(right, up: true); cheeks()
+            mouth(from: 0.42, to: 0.58, y: 0.17, bend: -0.07)
+        case .surprised:
+            openEye(left, scale: 1.25); openEye(right, scale: 1.25)
+            ink.setFill()
+            NSBezierPath(ovalIn: NSRect(x: w * 0.45, y: h * 0.09, width: w * 0.10, height: h * 0.10)).fill()
+        case .sleepy:
+            arcEye(left, up: false); arcEye(right, up: false)
+            mouth(from: 0.46, to: 0.54, y: 0.15, bend: -0.03)
+            let z = NSAttributedString(string: "z", attributes: [
+                .font: NSFont.boldSystemFont(ofSize: h * 0.16), .foregroundColor: ink,
+            ])
+            z.draw(at: CGPoint(x: w * 0.74, y: h * 0.62))
+        case .grumpy:
+            openEye(left); openEye(right)
+            let brows = NSBezierPath()
+            brows.move(to: CGPoint(x: left.x - r * 1.1, y: left.y + r * 1.9))
+            brows.line(to: CGPoint(x: left.x + r * 1.1, y: left.y + r * 1.2))
+            brows.move(to: CGPoint(x: right.x + r * 1.1, y: right.y + r * 1.9))
+            brows.line(to: CGPoint(x: right.x - r * 1.1, y: right.y + r * 1.2))
+            stroke(brows)
+            mouth(from: 0.42, to: 0.58, y: 0.13, bend: 0.06)
+        case .tongue:
+            arcEye(left, up: true); arcEye(right, up: true)
+            pink.setFill()
+            NSBezierPath(ovalIn: NSRect(x: w * 0.50, y: h * 0.07, width: w * 0.10, height: h * 0.10)).fill()
+            mouth(from: 0.40, to: 0.60, y: 0.17, bend: -0.05)
+        case .love:
+            heart(left); heart(right); cheeks()
+            mouth(from: 0.42, to: 0.58, y: 0.17, bend: -0.07)
+        case .dizzy:
+            crossEye(left); crossEye(right)
+            let wave = NSBezierPath()
+            wave.move(to: CGPoint(x: w * 0.40, y: h * 0.15))
+            wave.curve(to: CGPoint(x: w * 0.60, y: h * 0.15),
+                       controlPoint1: CGPoint(x: w * 0.46, y: h * 0.22), controlPoint2: CGPoint(x: w * 0.54, y: h * 0.08))
+            stroke(wave)
+        }
     }
 
     override func updateTrackingAreas() {

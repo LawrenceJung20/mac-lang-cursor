@@ -12,6 +12,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onCatSizeChange: ((CGFloat) -> Void)?
     var onHungerDelayChange: ((TimeInterval) -> Void)?
     var onPoopDelayChange: ((TimeInterval) -> Void)?
+    var onCleanAllPoops: (() -> Void)?
+    var poopCount: (() -> Int)?
     var keyboardAccessGranted: (() -> Bool)?
 
     var alwaysOn = false {
@@ -47,6 +49,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private var catSizeItems: [NSMenuItem] = []
     private var hungerItems: [NSMenuItem] = []
     private var poopItems: [NSMenuItem] = []
+    private let cleanPoopsItem = NSMenuItem(
+        title: "똥 모두 치우기",
+        action: #selector(cleanAllPoops),
+        keyEquivalent: ""
+    )
     private let permissionItem = NSMenuItem(
         title: "입력 모니터링 권한 허용…",
         action: #selector(openPermissionSettings),
@@ -93,6 +100,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             choices: [("10초 뒤 (기본)", 10), ("30초 뒤", 30), ("1분 뒤", 60), ("3분 뒤", 180), ("끄기", 0)],
             selected: poopDelay, action: #selector(changePoopDelay(_:))
         )
+        cleanPoopsItem.target = self
+        menu.addItem(cleanPoopsItem)
         menu.addItem(.separator())
         menu.addItem(alwaysOnItem)
         menu.addItem(permissionItem)
@@ -107,6 +116,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         permissionItem.isHidden = keyboardAccessGranted?() ?? false
+        let count = poopCount?() ?? 0
+        cleanPoopsItem.title = count > 0 ? "똥 모두 치우기 (\(count)개)" : "똥 모두 치우기"
+        cleanPoopsItem.isEnabled = count > 0
     }
 
     @objc private func toggleAlwaysOn() {
@@ -127,6 +139,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func changeHungerDelay(_ sender: NSMenuItem) {
         hungerDelay = TimeInterval(sender.tag)
         onHungerDelayChange?(hungerDelay)
+    }
+
+    @objc private func cleanAllPoops() {
+        onCleanAllPoops?()
     }
 
     @objc private func changePoopDelay(_ sender: NSMenuItem) {

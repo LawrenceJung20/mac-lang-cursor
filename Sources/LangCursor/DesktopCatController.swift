@@ -183,6 +183,14 @@ final class DesktopCatController {
         bowl?.orderFrontRegardless()
     }
 
+    var poopCount: Int { poops.count }
+
+    /// Clears every dropping at once (menu bar `똥 모두 치우기`).
+    func cleanAllPoops() {
+        for poop in poops { poop.fadeAway() }
+        poops.removeAll()
+    }
+
     private func clean(_ poop: PoopPanel) {
         poops.removeAll { $0 === poop }
         poop.fadeAway()
