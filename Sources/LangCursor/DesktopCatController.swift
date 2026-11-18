@@ -24,6 +24,12 @@ final class DesktopCatController {
     private var bowlSpot: CGPoint?
     private var bowlMirrored = false
     private var poops: [PoopPanel] = []
+    private var hissStart: TimeInterval?
+    private var hissMirrored = false
+    private var hissPanel: HissPanel?
+    private var lastHissPhrase: Int?
+    /// How long the swipe and shudder last after a click.
+    private static let swipeDuration: TimeInterval = 0.6
 
     func start() {
         guard !started else { return }
@@ -31,6 +37,7 @@ final class DesktopCatController {
         suspended = false
         do {
             spriteView = try DesktopCatView(atlas: DesktopCatAtlas(), size: size)
+            spriteView?.onClick = { [weak self] in self?.hiss() }
         } catch {
             started = false
             NSLog("Desktop cat atlas could not be loaded: %@", String(describing: error))
@@ -141,6 +148,7 @@ final class DesktopCatController {
         // Resting needs few wakeups. Short sit clips keep all eight frames at 60 Hz.
         // Grooming runs at 30 Hz; cursor movement immediately restores a 60 Hz sample rate.
         switch motion.phase {
+        case _ where hissStart != nil: scheduleTick(interval: 1 / 60)
         case _ where needs.errand == .eating: scheduleTick(interval: 1 / 30)
         case .idle: scheduleTick(interval: 1 / 12)
         case .licking, .washing, .stretching: scheduleTick(interval: 1 / 30)
@@ -184,6 +192,24 @@ final class DesktopCatController {
     }
 
     var poopCount: Int { poops.count }
+
+    /// Clicked: turn toward the cursor, swipe with a paw, and hiss in some language.
+    private func hiss() {
+        guard isEnabled, !suspended else { return }
+        hissStart = ProcessInfo.processInfo.systemUptime
+        hissMirrored = NSEvent.mouseLocation.x < motion.position.x
+        let index = CatHiss.nextIndex(after: lastHissPhrase)
+        lastHissPhrase = index
+        hissPanel?.close()
+        let effect = HissPanel(catCenter: motion.position, catSize: size,
+                               facingLeft: hissMirrored, text: CatHiss.phrases[index].text)
+        hissPanel = effect
+        effect.play { [weak self, weak effect] in
+            effect?.close()
+            if let self, hissPanel === effect { hissPanel = nil }
+        }
+        scheduleTick(interval: 1 / 60)
+    }
 
     /// Clears every dropping at once (menu bar `똥 모두 치우기`).
     func cleanAllPoops() {
@@ -247,15 +273,25 @@ final class DesktopCatController {
 
     private func render() {
         guard let panel, let spriteView else { return }
-        if needs.errand == .eating {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let start = hissStart, now - start >= Self.swipeDuration { hissStart = nil }
+        var shake: CGFloat = 0
+        if let start = hissStart {
+            // Rapidly alternating stretch frames read as a paw swiping at the cursor,
+            // with a shudder that dies down.
+            let t = now - start
+            let frame = Int(t * 14).isMultiple(of: 2) ? 3 : 7
+            spriteView.render(CatPose(animation: .stretch, frame: frame, mirrored: hissMirrored))
+            shake = sin(CGFloat(t) * 70) * size * 0.05 * CGFloat(1 - t / Self.swipeDuration)
+        } else if needs.errand == .eating {
             // Head down at the bowl: the paw-licking row reads as eating, facing the bowl.
-            let chewing = needs.eatingTime(now: ProcessInfo.processInfo.systemUptime) * 5
+            let chewing = needs.eatingTime(now: now) * 5
             spriteView.render(CatPose(animation: .lick, frame: Int(chewing) % CatAnimation.frameCount,
                                       mirrored: bowlMirrored))
         } else {
             spriteView.render(motion.pose)
         }
-        let origin = CGPoint(x: motion.position.x - size / 2, y: motion.position.y - size / 2)
+        let origin = CGPoint(x: motion.position.x - size / 2 + shake, y: motion.position.y - size / 2)
         if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
         renderBowl()
     }
@@ -368,10 +404,10 @@ private final class DesktopCatPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false
         hidesOnDeactivate = false
         animationBehavior = .none
-        // Stay above ordinary app windows while forwarding clicks to the app underneath.
+        // Above ordinary app windows. It takes clicks (to hiss) without activating the app.
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         isExcludedFromWindowsMenu = true

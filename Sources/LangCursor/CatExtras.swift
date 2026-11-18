@@ -539,7 +539,7 @@ private final class BowlView: NSView {
 }
 
 @MainActor
-private func configureFloating(_ panel: NSPanel) {
+func configureFloating(_ panel: NSPanel) {
     panel.isReleasedWhenClosed = false
     panel.isOpaque = false
     panel.backgroundColor = .clear
