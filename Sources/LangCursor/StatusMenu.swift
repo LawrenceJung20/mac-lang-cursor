@@ -11,7 +11,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onCatEnabledChange: ((Bool) -> Void)?
     var onCatSizeChange: ((CGFloat) -> Void)?
     var onHungerDelayChange: ((TimeInterval) -> Void)?
-    var onPoopIntervalChange: ((TimeInterval) -> Void)?
+    var onPoopDelayChange: ((TimeInterval) -> Void)?
     var keyboardAccessGranted: (() -> Bool)?
 
     var alwaysOn = false {
@@ -29,8 +29,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var hungerDelay: TimeInterval = 60 {
         didSet { Self.check(hungerItems, value: hungerDelay) }
     }
-    var poopInterval: TimeInterval = 300 {
-        didSet { Self.check(poopItems, value: poopInterval) }
+    var poopDelay: TimeInterval = 10 {
+        didSet { Self.check(poopItems, value: poopDelay) }
     }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -89,9 +89,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             selected: hungerDelay, action: #selector(changeHungerDelay(_:))
         )
         poopItems = addChoiceMenu(
-            to: menu, title: "똥 싸는 간격",
-            choices: [("30초", 30), ("2분", 120), ("5분 (기본)", 300), ("10분", 600), ("끄기", 0)],
-            selected: poopInterval, action: #selector(changePoopInterval(_:))
+            to: menu, title: "가만히 있으면 똥 싸기",
+            choices: [("10초 뒤 (기본)", 10), ("30초 뒤", 30), ("1분 뒤", 60), ("3분 뒤", 180), ("끄기", 0)],
+            selected: poopDelay, action: #selector(changePoopDelay(_:))
         )
         menu.addItem(.separator())
         menu.addItem(alwaysOnItem)
@@ -129,9 +129,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         onHungerDelayChange?(hungerDelay)
     }
 
-    @objc private func changePoopInterval(_ sender: NSMenuItem) {
-        poopInterval = TimeInterval(sender.tag)
-        onPoopIntervalChange?(poopInterval)
+    @objc private func changePoopDelay(_ sender: NSMenuItem) {
+        poopDelay = TimeInterval(sender.tag)
+        onPoopDelayChange?(poopDelay)
     }
 
     /// A submenu of radio-style choices whose tags hold seconds.

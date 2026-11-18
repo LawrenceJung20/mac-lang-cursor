@@ -20,6 +20,9 @@ final class DesktopCatController {
     private var suspended = false
     private var needs = CatNeeds(now: ProcessInfo.processInfo.systemUptime)
     private var bowl: BowlPanel?
+    /// Where the bowl was set down, and which way the cat faced it.
+    private var bowlSpot: CGPoint?
+    private var bowlMirrored = false
     private var poops: [PoopPanel] = []
 
     func start() {
@@ -73,6 +76,7 @@ final class DesktopCatController {
             timer = nil
             previousTick = nil
             panel?.orderOut(nil)
+            needs.cancelErrand(at: ProcessInfo.processInfo.systemUptime)
             dismissBowl()
             for poop in poops { poop.orderOut(nil) }
         }
@@ -84,9 +88,9 @@ final class DesktopCatController {
         dismissBowl()
     }
 
-    /// Seconds between droppings. `0` turns it off.
-    func setPoopInterval(_ seconds: TimeInterval) {
-        needs.setPoopInterval(seconds, now: ProcessInfo.processInfo.systemUptime)
+    /// Seconds the cursor must stay still before the cat poops. `0` turns it off.
+    func setPoopDelay(_ seconds: TimeInterval) {
+        needs.setPoopDelay(seconds)
     }
 
     func setSize(_ points: CGFloat) {
@@ -121,7 +125,13 @@ final class DesktopCatController {
         let resting = motion.phase != .running && motion.phase != .settling
         // A target closer than the start distance never wakes the cat, so that counts as arrived.
         let arrived = resting && hypot(motion.position.x - target.x, motion.position.y - target.y) <= 20
+        let before = needs.errand
         needs.update(now: now, catArrived: arrived)
+        if before == .returning, needs.errand == .waiting {
+            bowlSpot = motion.position
+            bowlMirrored = motion.pose.mirrored
+        }
+        if before == .eating, needs.errand == .none { dismissBowl() }
         if needs.shouldPoop(now: now, catResting: resting, poopCount: poops.count) {
             dropPoop(on: screen)
         }
@@ -131,6 +141,7 @@ final class DesktopCatController {
         // Resting needs few wakeups. Short sit clips keep all eight frames at 60 Hz.
         // Grooming runs at 30 Hz; cursor movement immediately restores a 60 Hz sample rate.
         switch motion.phase {
+        case _ where needs.errand == .eating: scheduleTick(interval: 1 / 30)
         case .idle: scheduleTick(interval: 1 / 12)
         case .licking, .washing, .stretching: scheduleTick(interval: 1 / 30)
         case .running, .settling: scheduleTick(interval: 1 / 60)
@@ -141,12 +152,18 @@ final class DesktopCatController {
     private func errandTarget(on screen: NSScreen) -> CGPoint {
         let catSize = CGSize(width: size, height: size)
         let frame = screen.visibleFrame
-        guard needs.errand == .leaving else {
-            return CatPlacement.target(cursor: NSEvent.mouseLocation, screen: frame, catSize: catSize)
+        switch needs.errand {
+        case .waiting, .eating:
+            // Stay with the bowl even while the cursor moves over to serve food.
+            if let bowlSpot { return bowlSpot }
+        case .leaving:
+            let edgeX = motion.position.x < frame.midX ? frame.minX : frame.maxX
+            return CatPlacement.clamp(position: CGPoint(x: edgeX, y: motion.position.y),
+                                      to: frame, catSize: catSize)
+        case .none, .returning:
+            break
         }
-        let edgeX = motion.position.x < frame.midX ? frame.minX : frame.maxX
-        return CatPlacement.clamp(position: CGPoint(x: edgeX, y: motion.position.y),
-                                  to: frame, catSize: catSize)
+        return CatPlacement.target(cursor: NSEvent.mouseLocation, screen: frame, catSize: catSize)
     }
 
     private func dropPoop(on screen: NSScreen) {
@@ -168,18 +185,19 @@ final class DesktopCatController {
 
     private func clean(_ poop: PoopPanel) {
         poops.removeAll { $0 === poop }
-        poop.ignoresMouseEvents = true
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.25
-            poop.animator().alphaValue = 0
-        }, completionHandler: {
-            MainActor.assumeIsolated { poop.close() }
-        })
+        poop.fadeAway()
     }
 
     private func dismissBowl() {
         bowl?.dismiss()
         bowl = nil
+        bowlSpot = nil
+    }
+
+    private func serveFood() {
+        guard needs.serveFood(at: ProcessInfo.processInfo.systemUptime) else { return }
+        renderBowl()
+        scheduleTick(interval: 1 / 30)
     }
 
     private func renderBowl() {
@@ -187,16 +205,23 @@ final class DesktopCatController {
         let bowlSize = (size * 0.55).rounded()
         if bowl == nil {
             let bowl = BowlPanel(size: bowlSize)
+            bowl.onClick = { [weak self] in self?.serveFood() }
             self.bowl = bowl
             bowl.orderFrontRegardless()
         }
+        guard let bowl else { return }
+        bowl.food = needs.foodLeft(now: ProcessInfo.processInfo.systemUptime)
+        bowl.acceptsFood = needs.bowlAcceptsFood
         // Carried at the mouth while walking; set down in front of the paws once it arrives.
-        let forward: CGFloat = motion.pose.mirrored ? -1 : 1
-        let carried = needs.errand == .returning
-        bowl?.move(center: CGPoint(
-            x: motion.position.x + forward * size * (carried ? 0.36 : 0.52),
-            y: motion.position.y - size * (carried ? 0.12 : 0.30)
-        ))
+        if needs.errand == .returning {
+            let forward: CGFloat = motion.pose.mirrored ? -1 : 1
+            bowl.move(center: CGPoint(x: motion.position.x + forward * size * 0.36,
+                                      y: motion.position.y - size * 0.12))
+        } else {
+            let spot = bowlSpot ?? motion.position
+            let forward: CGFloat = bowlMirrored ? -1 : 1
+            bowl.move(center: CGPoint(x: spot.x + forward * size * 0.52, y: spot.y - size * 0.30))
+        }
     }
 
     private func scheduleTick(interval: TimeInterval) {
@@ -214,7 +239,14 @@ final class DesktopCatController {
 
     private func render() {
         guard let panel, let spriteView else { return }
-        spriteView.render(motion.pose)
+        if needs.errand == .eating {
+            // Head down at the bowl: the paw-licking row reads as eating, facing the bowl.
+            let chewing = needs.eatingTime(now: ProcessInfo.processInfo.systemUptime) * 5
+            spriteView.render(CatPose(animation: .lick, frame: Int(chewing) % CatAnimation.frameCount,
+                                      mirrored: bowlMirrored))
+        } else {
+            spriteView.render(motion.pose)
+        }
         let origin = CGPoint(x: motion.position.x - size / 2, y: motion.position.y - size / 2)
         if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
         renderBowl()
@@ -301,6 +333,7 @@ final class DesktopCatController {
         timer = nil
         previousTick = nil
         panel?.orderOut(nil)
+        needs.cancelErrand(at: ProcessInfo.processInfo.systemUptime)
         dismissBowl()
         for poop in poops { poop.orderOut(nil) }
     }
