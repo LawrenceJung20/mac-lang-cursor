@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let alwaysOnKey = "alwaysOn"
     private static let catEnabledKey = "desktopCatEnabled"
     private static let catSizeKey = "desktopCatSize"
+    private static let hungerDelayKey = "desktopCatHungerDelay"
+    private static let poopIntervalKey = "desktopCatPoopInterval"
 
     private let overlay = OverlayWindow()
     private let inputSource = InputSourceMonitor()
@@ -26,7 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         policy.alwaysOn = UserDefaults.standard.bool(forKey: Self.alwaysOnKey)
-        UserDefaults.standard.register(defaults: [Self.catEnabledKey: true, Self.catSizeKey: 64.0])
+        UserDefaults.standard.register(defaults: [
+            Self.catEnabledKey: true, Self.catSizeKey: 64.0,
+            Self.hungerDelayKey: 60.0, Self.poopIntervalKey: 300.0,
+        ])
         let catEnabled = UserDefaults.standard.bool(forKey: Self.catEnabledKey)
         let catSize = UserDefaults.standard.double(forKey: Self.catSizeKey)
         desktopCat.setSize(catSize)
@@ -40,6 +45,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.onCatSizeChange = { [weak self] size in
             UserDefaults.standard.set(size, forKey: Self.catSizeKey)
             self?.desktopCat.setSize(size)
+        }
+        let hungerDelay = UserDefaults.standard.double(forKey: Self.hungerDelayKey)
+        let poopInterval = UserDefaults.standard.double(forKey: Self.poopIntervalKey)
+        desktopCat.setHungerDelay(hungerDelay)
+        desktopCat.setPoopInterval(poopInterval)
+        statusMenu.hungerDelay = hungerDelay
+        statusMenu.poopInterval = poopInterval
+        statusMenu.onHungerDelayChange = { [weak self] seconds in
+            UserDefaults.standard.set(seconds, forKey: Self.hungerDelayKey)
+            self?.desktopCat.setHungerDelay(seconds)
+        }
+        statusMenu.onPoopIntervalChange = { [weak self] seconds in
+            UserDefaults.standard.set(seconds, forKey: Self.poopIntervalKey)
+            self?.desktopCat.setPoopInterval(seconds)
         }
         desktopCat.start()
 
