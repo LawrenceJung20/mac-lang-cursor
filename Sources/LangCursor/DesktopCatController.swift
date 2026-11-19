@@ -229,8 +229,16 @@ final class DesktopCatController {
     }
 
     private func serveFood() {
+        let carrying = needs.errand == .returning
         guard needs.serveFood(at: ProcessInfo.processInfo.systemUptime) else { return }
+        if carrying {
+            // Clicked on the way: put the bowl down right here and stop to eat.
+            bowlMirrored = motion.pose.mirrored
+            motion.reset(position: motion.position)
+            bowlSpot = motion.position
+        }
         renderBowl()
+        bowl?.bounce()
         scheduleTick(interval: 1 / 30)
     }
 

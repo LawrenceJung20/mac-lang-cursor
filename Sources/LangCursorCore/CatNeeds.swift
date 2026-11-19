@@ -9,7 +9,7 @@ public struct CatNeeds: Sendable {
         case none
         /// Walking to the screen edge to pick up the bowl. Cursor movement calls this off.
         case leaving
-        /// Carrying the empty bowl back.
+        /// Carrying the empty bowl back. A click on it serves food right where the cat is.
         case returning
         /// Sitting beside the empty bowl until someone clicks it to serve food.
         case waiting
@@ -36,8 +36,8 @@ public struct CatNeeds: Sendable {
     /// The bowl is visible from the moment it is carried until the meal is finished.
     public var showsBowl: Bool { errand == .returning || errand == .waiting || errand == .eating }
 
-    /// Only an empty, set-down bowl takes the serving click.
-    public var bowlAcceptsFood: Bool { errand == .waiting }
+    /// The empty bowl takes the serving click, whether it is still carried or already set down.
+    public var bowlAcceptsFood: Bool { errand == .returning || errand == .waiting }
 
     /// Food remaining in the bowl, from 1 (just served) to 0 (empty).
     public func foodLeft(now: TimeInterval) -> Double {
@@ -62,10 +62,10 @@ public struct CatNeeds: Sendable {
         return true
     }
 
-    /// Serves food into the waiting bowl. Returns `false` when the bowl is not ready.
+    /// Serves food into the empty bowl. Returns `false` when there is no empty bowl to fill.
     @discardableResult
     public mutating func serveFood(at now: TimeInterval) -> Bool {
-        guard errand == .waiting else { return false }
+        guard bowlAcceptsFood else { return false }
         errand = .eating
         mealStart = now
         return true

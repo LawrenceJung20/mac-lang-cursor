@@ -34,7 +34,7 @@ import Testing
         needs.update(now: 35, catArrived: true)
         #expect(needs.errand == .returning)
         #expect(needs.showsBowl)
-        #expect(!needs.bowlAcceptsFood)
+        #expect(needs.bowlAcceptsFood)
         needs.update(now: 36, catArrived: false)
         #expect(needs.errand == .returning)
         needs.update(now: 40, catArrived: true)
@@ -83,12 +83,17 @@ import Testing
         #expect(needs.errand == .leaving)
     }
 
-    @Test func cannotServeFoodBeforeTheBowlIsSetDown() {
+    @Test func servesFoodOnlyOnceTheCatHasTheBowl() {
         var needs = CatNeeds(now: 0, hungerDelay: 30)
         do { let result = needs.serveFood(at: 1); #expect(!result) }
         needs.update(now: 30, catArrived: false)
+        #expect(needs.errand == .leaving)
+        do { let result = needs.serveFood(at: 31); #expect(!result) }
         needs.update(now: 35, catArrived: true)
-        do { let result = needs.serveFood(at: 36); #expect(!result) }
+        // Still carrying it: a click serves food right away.
+        do { let result = needs.serveFood(at: 36); #expect(result) }
+        #expect(needs.errand == .eating)
+        #expect(needs.foodLeft(now: 36) == 1)
     }
 
     @Test func zeroDelayDisablesHungerAndChangingItCancelsTheErrand() {

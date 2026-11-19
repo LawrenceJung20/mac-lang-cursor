@@ -444,6 +444,8 @@ final class BowlPanel: NSPanel {
         )
         configureFloating(self)
         bowlView.onClick = { [weak self] in self?.onClick?() }
+        // Layer-backed so the bowl can hop when food is served.
+        bowlView.wantsLayer = true
         contentView = bowlView
     }
 
@@ -453,6 +455,16 @@ final class BowlPanel: NSPanel {
     func move(center: CGPoint) {
         let origin = CGPoint(x: center.x - frame.width / 2, y: center.y - frame.height / 2)
         if frame.origin != origin { setFrameOrigin(origin) }
+    }
+
+    /// A little hop when food lands in the bowl.
+    func bounce() {
+        guard let layer = contentView?.layer else { return }
+        let hop = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        hop.values = [0, frame.height * 0.22, 0, frame.height * 0.07, 0]
+        hop.keyTimes = [0, 0.3, 0.6, 0.8, 1]
+        hop.duration = 0.35
+        layer.add(hop, forKey: "bounce")
     }
 
     func dismiss() {

@@ -1,7 +1,7 @@
 import AppKit
 
-/// The cat's angry reaction when clicked: three claw slashes in front of it and a speech
-/// bubble saying "hiss" in some language. Click-through, plays once, then closes itself.
+/// The cat's angry reaction when clicked: three claw slashes in front of it and "hiss" in
+/// some language shouted over its head. Click-through, plays once, then closes itself.
 @MainActor
 final class HissPanel: NSPanel {
     static let duration: CFTimeInterval = 1.6
@@ -15,7 +15,7 @@ final class HissPanel: NSPanel {
     init(catCenter: CGPoint, catSize: CGFloat, facingLeft: Bool, text: String) {
         let width = catSize * 4.4
         let height = catSize * 3.2
-        // The cat sits low in the middle; the bubble gets the room above it.
+        // The cat sits low in the middle; the shout gets the room above it.
         catPoint = CGPoint(x: width / 2, y: catSize * 1.0)
         self.catSize = catSize
         self.facingLeft = facingLeft
@@ -45,7 +45,7 @@ final class HissPanel: NSPanel {
             MainActor.assumeIsolated { completion() }
         }
         addClawMarks(to: root)
-        addBubble(to: root, scale: scale)
+        addShout(to: root, scale: scale)
         CATransaction.commit()
     }
 
@@ -93,78 +93,65 @@ final class HissPanel: NSPanel {
         }
     }
 
-    private func addBubble(to root: CALayer, scale: CGFloat) {
-        let font = NSFont.systemFont(ofSize: max(11, catSize * 0.3), weight: .heavy)
-        let attributed = NSAttributedString(string: text, attributes: [
-            .font: font, .foregroundColor: NSColor(calibratedRed: 0.75, green: 0.08, blue: 0.12, alpha: 1),
-        ])
-        let textSize = attributed.size()
-        let padding = CGSize(width: catSize * 0.2, height: catSize * 0.1)
-        let bubbleSize = CGSize(width: ceil(textSize.width + padding.width * 2),
-                                height: ceil(textSize.height + padding.height * 2))
-        let tail = catSize * 0.2
-        let bounds = effectView.bounds
+    /// The hiss itself, as bare text over the cat's head (no bubble): it pops out, shudders,
+    /// drifts up a little, and fades. A white outline keeps it readable on any background.
+    private func addShout(to root: CALayer, scale: CGFloat) {
+        let image = Self.outlinedText(text, size: max(12, catSize * 0.34))
         let forward: CGFloat = facingLeft ? -1 : 1
-        let x = min(max(catPoint.x + forward * catSize * 0.25 - bubbleSize.width / 2, 2),
-                    bounds.width - bubbleSize.width - 2)
-        let y = min(catPoint.y + catSize * 0.45 + tail, bounds.height - bubbleSize.height - 2)
-        let frame = CGRect(origin: CGPoint(x: x, y: y), size: bubbleSize)
-
-        // The bubble layer is anchored at its tail tip, so it pops out of the cat's head.
-        let tip = CGPoint(x: catPoint.x + forward * catSize * 0.05, y: catPoint.y + catSize * 0.3)
-        let bubble = CAShapeLayer()
-        bubble.bounds = bounds
-        bubble.anchorPoint = CGPoint(x: tip.x / bounds.width, y: tip.y / bounds.height)
-        bubble.position = tip
-        // One continuous outline (body plus tail), so no seam shows where the tail joins.
-        let radius = bubbleSize.height / 2.2
-        let halfTail = tail * 0.45
-        let baseX = min(max(tip.x, frame.minX + radius + halfTail), frame.maxX - radius - halfTail)
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: baseX + halfTail, y: frame.minY))
-        path.addArc(tangent1End: CGPoint(x: frame.maxX, y: frame.minY),
-                    tangent2End: CGPoint(x: frame.maxX, y: frame.maxY), radius: radius)
-        path.addArc(tangent1End: CGPoint(x: frame.maxX, y: frame.maxY),
-                    tangent2End: CGPoint(x: frame.minX, y: frame.maxY), radius: radius)
-        path.addArc(tangent1End: CGPoint(x: frame.minX, y: frame.maxY),
-                    tangent2End: CGPoint(x: frame.minX, y: frame.minY), radius: radius)
-        path.addArc(tangent1End: CGPoint(x: frame.minX, y: frame.minY),
-                    tangent2End: CGPoint(x: frame.maxX, y: frame.minY), radius: radius)
-        path.addLine(to: CGPoint(x: baseX - halfTail, y: frame.minY))
-        path.addLine(to: tip)
-        path.closeSubpath()
-        bubble.path = path
-        bubble.fillColor = NSColor.white.cgColor
-        bubble.strokeColor = NSColor(calibratedWhite: 0.15, alpha: 1).cgColor
-        bubble.lineWidth = max(1.2, catSize * 0.035)
-        bubble.lineJoin = .round
-
-        let label = CATextLayer()
-        label.string = attributed
-        label.contentsScale = scale
-        label.alignmentMode = .center
-        label.frame = CGRect(x: frame.minX, y: frame.minY + padding.height - 1,
-                             width: frame.width, height: textSize.height + 2)
-        bubble.addSublayer(label)
+        let bounds = effectView.bounds
+        let half = image.size.width / 2
+        let x = min(max(catPoint.x + forward * catSize * 0.15, half + 2), bounds.width - half - 2)
+        let shout = CALayer()
+        shout.contents = image.layerContents(forContentsScale: scale)
+        shout.contentsScale = scale
+        shout.bounds = CGRect(origin: .zero, size: image.size)
+        // Anchored at its bottom edge, so it pops up out of the cat's head.
+        shout.anchorPoint = CGPoint(x: 0.5, y: 0)
+        shout.position = CGPoint(x: x, y: catPoint.y + catSize * 0.4)
 
         let pop = CAKeyframeAnimation(keyPath: "transform.scale")
-        pop.values = [0.2, 1.18, 0.94, 1]
+        pop.values = [0.2, 1.25, 0.92, 1]
         pop.keyTimes = [0, 0.45, 0.75, 1]
         pop.duration = 0.28
-        // An angry little shudder while it is shown.
         let shake = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        shake.values = [0, 0.07, -0.07, 0.05, -0.05, 0]
+        shake.values = [0, 0.09, -0.09, 0.06, -0.06, 0]
         shake.beginTime = 0.28
         shake.duration = 0.35
+        let rise = CABasicAnimation(keyPath: "transform.translation.y")
+        rise.fromValue = 0
+        rise.toValue = catSize * 0.25
+        rise.duration = Self.duration
         let fade = CAKeyframeAnimation(keyPath: "opacity")
         fade.values = [1, 1, 0]
-        fade.keyTimes = [0, 0.8, 1]
+        fade.keyTimes = [0, 0.75, 1]
         fade.duration = Self.duration
         let group = CAAnimationGroup()
-        group.animations = [pop, shake, fade]
+        group.animations = [pop, shake, rise, fade]
         group.duration = Self.duration
-        bubble.opacity = 0
-        bubble.add(group, forKey: "bubble")
-        root.addSublayer(bubble)
+        shout.opacity = 0
+        shout.add(group, forKey: "shout")
+        root.addSublayer(shout)
+    }
+
+    /// Bold red text with a thick white outline, rendered once into a bitmap.
+    private static func outlinedText(_ text: String, size: CGFloat) -> NSImage {
+        let font = NSFont.systemFont(ofSize: size, weight: .black)
+        let outline = size * 0.16
+        let plain = NSAttributedString(string: text, attributes: [.font: font])
+        let textSize = plain.size()
+        let imageSize = NSSize(width: ceil(textSize.width + outline * 2), height: ceil(textSize.height + outline * 2))
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        let origin = CGPoint(x: outline, y: outline)
+        // Outline pass: a positive stroke width strokes only, so draw it first and fill on top.
+        NSAttributedString(string: text, attributes: [
+            .font: font, .strokeColor: NSColor.white, .strokeWidth: outline / size * 200,
+        ]).draw(at: origin)
+        NSAttributedString(string: text, attributes: [
+            .font: font, .foregroundColor: NSColor(calibratedRed: 0.82, green: 0.08, blue: 0.13, alpha: 1),
+            .strokeColor: NSColor(calibratedRed: 0.45, green: 0.02, blue: 0.05, alpha: 1), .strokeWidth: -2.5,
+        ]).draw(at: origin)
+        image.unlockFocus()
+        return image
     }
 }
